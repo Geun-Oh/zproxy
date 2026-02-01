@@ -43,7 +43,7 @@ pub fn parse_request(allocator: std.mem.Allocator, buffer: []const u8) !HttpRequ
         if (std.mem.indexOfScalar(u8, line, ':')) |colon_idx| {
             const name = std.mem.trim(u8, line[0..colon_idx], " ");
             const value = std.mem.trim(u8, line[colon_idx + 1 ..], " ");
-            try headers.append(.{ .name = name, .value = value });
+            try headers.append(allocator, .{ .name = name, .value = value });
         }
     }
 
