@@ -17,6 +17,7 @@ pub const Session = struct {
     allocator: std.mem.Allocator,
     client: Connection,
     server: ?Connection = null,
+    default_backend: []const u8 = "web_back",
 
     // Buffer for parsing or forwarding
     buf: [BufferSize]u8 = undefined,

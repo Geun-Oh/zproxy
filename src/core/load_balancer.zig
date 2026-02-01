@@ -26,6 +26,13 @@ pub const Loadbalancer = struct {
         self.backend_indicies.deinit();
     }
 
+    /// Decide backend based on Host headeer, otherwise use default
+    pub fn route(self: *Loadbalancer, default_backend: []const u8, host_header: []const u8) ?Server {
+        _ = host_header;
+
+        return self.get_next_server(default_backend);
+    }
+
     pub fn get_next_server(self: *Loadbalancer, backend_name: []const u8) ?Server {
         // 1. Find backend
         var backend: ?Backend = null;
