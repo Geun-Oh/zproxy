@@ -1,3 +1,4 @@
 _*.md
 zig-out
 .zig-cache
+zproxy.json
