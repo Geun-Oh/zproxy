@@ -8,19 +8,34 @@ const Task = SchedulerContext.Task;
 const Memory = @import("core/memory.zig");
 
 const Listener = @import("core/listener.zig").Listener;
+const Session = @import("core/session.zig").Session;
+const Config = @import("config.zig").Config;
+const Loadbalancer = @import("core/load_balancer.zig").Loadbalancer;
+
+const CONFIG_FILE_PATH = "zproxy.json";
 
 const Engine = struct {
     poller: Poller,
     scheduler: Scheduler,
     listener: Listener,
+    config: std.json.Parsed(Config),
+    load_balancer: Loadbalancer,
     running: bool,
+    allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) !Engine {
+        const parsed_config = try @import("config.zig").loadFromFile(allocator, CONFIG_FILE_PATH);
+
+        const lb = try Loadbalancer.init(allocator, &parsed_config.value);
+
         return Engine{
             .poller = try Poller.init(allocator),
             .scheduler = Scheduler.init(allocator),
             .listener = try Listener.init(8080),
+            .config = parsed_config,
+            .load_balancer = lb,
             .running = true,
+            .allocator = allocator,
         };
     }
 
@@ -32,9 +47,7 @@ const Engine = struct {
 
         while (self.running) {
             const timeout_ns = self.scheduler.next_timeout_ns();
-
             const effective_timeout = timeout_ns orelse 1_000_000_000;
-
             const events = try self.poller.poll(effective_timeout);
 
             for (events) |ev| {
@@ -45,10 +58,36 @@ const Engine = struct {
                             continue;
                         };
                         fprint("[Listener] Accepted connection fd={}\n", .{client_fd});
-                        std.posix.close(client_fd); // Echo/Close for now
+
+                        const session = try Session.init(self.allocator, client_fd);
+                        const backend_name = "web_back"; // TODO: Dynamic from frontend config
+                        if (self.load_balancer.get_next_server(backend_name)) |server| {
+                            session.connect_backend(&self.poller, server.host, server.port) catch |err| {
+                                fprint("[Session] Connect backend error: {}\n", .{err});
+                                session.deinit();
+                                continue;
+                            };
+                        } else {
+                            fprint("[Engine] No backend server available", .{});
+                            session.deinit();
+                            continue;
+                        }
                     }
                 } else {
-                    fprint("[Event] fd={} r={} w={} ctx={any}\n", .{ ev.fd, ev.readable, ev.writable, ev.context });
+                    if (ev.context) |ctx| {
+                        const session: *Session = @ptrCast(@alignCast(ctx));
+                        session.handle_event(ev.fd, ev.readable, ev.writable) catch |err| {
+                            switch (err) {
+                                error.ClientClosed, error.ServerClosed => {
+                                    fprint("[Session] Closed gracefully: {}\n", .{err});
+                                },
+                                else => {
+                                    fprint("[Session] Closed/Error: {}\n", .{err});
+                                },
+                            }
+                            session.deinit();
+                        };
+                    }
                 }
             }
 
@@ -95,11 +134,4 @@ pub fn fprint(comptime fmt: []const u8, args: anytype) void {
     stdout.print(fmt, args) catch {};
 
     stdout.flush() catch {};
-}
-
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit();
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
 }
