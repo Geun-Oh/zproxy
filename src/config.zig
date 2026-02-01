@@ -1,13 +1,8 @@
 const std = @import("std");
 
 pub const Config = struct {
-    frontends: std.ArrayList(Frontend),
-    backends: std.ArrayList(Backend),
-
-    pub fn deinit(self: *Config) void {
-        self.frontends.deinit();
-        self.backends.deinit();
-    }
+    frontends: []const Frontend,
+    backends: []const Backend,
 };
 
 pub const Frontend = struct {
@@ -19,11 +14,7 @@ pub const Frontend = struct {
 
 pub const Backend = struct {
     name: []const u8,
-    servers: std.ArrayList(Server),
-
-    pub fn deinit(self: *Backend) void {
-        self.servers.deinit();
-    }
+    servers: []const Server,
 };
 
 pub const Server = struct {
@@ -31,3 +22,19 @@ pub const Server = struct {
     port: u16,
     weight: u8 = 1,
 };
+
+/// Loads config from file.
+/// Returns a Parsed config wrapper using an internal Arena.
+/// Caller must call .deinit() on the result.
+pub fn loadFromFile(allocator: std.mem.Allocator, path: []const u8) !std.json.Parsed(Config) {
+    const file = try std.fs.cwd().openFile(path, .{});
+    defer file.close();
+
+    const stat = try file.stat();
+    const buf = try allocator.alloc(u8, @intCast(stat.size));
+    defer allocator.free(buf);
+
+    _ = try file.readAll(buf);
+
+    return std.json.parseFromSlice(Config, allocator, buf, .{ .allocate = .alloc_always, .ignore_unknown_fields = true });
+}
