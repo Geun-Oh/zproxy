@@ -1,12 +1,12 @@
-# zproxy
+# ⚡ zproxy
 
-A high-performance, event-driven network proxy core written in **Zig**, designed to replicate and modernize the architectural principles of **HAProxy**.
+A high-performance, event-driven network proxy core written in **Zig**, designed to replicate and modernize the architectural principles of [**HAProxy**](https://www.haproxy.org/).
 
-## 🚀 What does it for?
+## 🚀 What does it work for?
 
 To build a modern, safe, and ultra-high-performance production level load balancer core by leveraging Zig's features while strictly adhering to the zero-copy and non-blocking philosophy of HAProxy.
 
-## ✨ Key Features (Current Status)
+## ✨ Key Features
 
 ### 1. High-Performance Scheduler
 
