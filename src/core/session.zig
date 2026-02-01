@@ -41,9 +41,8 @@ pub const Session = struct {
     pub fn deinit(self: *Session) void {
         self.client.close();
         if (self.server) |*s| s.close();
-        self.allocator.destroy(self);
-        // Change state to closed
         self.state = .Closed;
+        self.allocator.destroy(self);
     }
 
     /// L4 Mode Entry: Connect immediately.
