@@ -60,23 +60,14 @@ const Engine = struct {
                         fprint("[Listener] Accepted connection fd={}\n", .{client_fd});
 
                         const session = try Session.init(self.allocator, client_fd);
-                        const backend_name = "web_back"; // TODO: Dynamic from frontend config
-                        if (self.load_balancer.get_next_server(backend_name)) |server| {
-                            session.connect_backend(&self.poller, server.host, server.port) catch |err| {
-                                fprint("[Session] Connect backend error: {}\n", .{err});
-                                session.deinit();
-                                continue;
-                            };
-                        } else {
-                            fprint("[Engine] No backend server available", .{});
-                            session.deinit();
-                            continue;
-                        }
+
+                        // Wait until client sends data for L7 Handshake
+                        try self.poller.register(client_fd, .{ .readable = true }, session);
                     }
                 } else {
                     if (ev.context) |ctx| {
                         const session: *Session = @ptrCast(@alignCast(ctx));
-                        session.handle_event(ev.fd, ev.readable, ev.writable) catch |err| {
+                        session.handle_event(ev.fd, ev.readable, ev.writable, &self.poller, &self.load_balancer) catch |err| {
                             switch (err) {
                                 error.ClientClosed, error.ServerClosed => {
                                     fprint("[Session] Closed gracefully: {}\n", .{err});
