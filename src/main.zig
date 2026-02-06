@@ -10,6 +10,7 @@ const Memory = @import("core/memory.zig");
 const Listener = @import("core/listener.zig").Listener;
 const Session = @import("core/session.zig").Session;
 const Config = @import("config.zig").Config;
+const Frontend = @import("config.zig").Frontend;
 const Loadbalancer = @import("core/load_balancer.zig").Loadbalancer;
 
 const CONFIG_FILE_PATH = "zproxy.json";
@@ -17,6 +18,7 @@ const CONFIG_FILE_PATH = "zproxy.json";
 const ListenerContext = struct {
     listener: Listener,
     default_backend: []const u8,
+    frontend_config: *const Frontend,
 };
 
 const Engine = struct {
@@ -58,6 +60,7 @@ const Engine = struct {
             const ctx = try allocator.create(ListenerContext);
             ctx.listener = try Listener.init(fe.bind_port);
             ctx.default_backend = fe.backend_name;
+            ctx.frontend_config = &fe;
 
             try listeners.append(allocator, ctx);
             try listener_map.put(@ptrCast(ctx), ctx);
@@ -110,13 +113,21 @@ const Engine = struct {
                 if (self.listener_map.get(ev.context)) |listener_ctx| {
                     if (ev.readable) {
                         // Case 1: New Connection on Listener
-                        const client_fd = listener_ctx.listener.accept() catch |err| {
+                        const accept_ret = listener_ctx.listener.accept() catch |err| {
                             fprint("[Listener] Accept error: {}\n", .{err});
                             continue;
                         };
+                        const client_fd = accept_ret.fd;
+                        const address = accept_ret.address;
+
                         fprint("[Listener] Accepted connection fd={}\n", .{client_fd});
 
-                        const session = try Session.init(self.allocator, client_fd);
+                        const session = try Session.init(
+                            self.allocator,
+                            client_fd,
+                            address,
+                            listener_ctx.frontend_config,
+                        );
 
                         // Inject default backend info from the listener context
                         session.default_backend = listener_ctx.default_backend;

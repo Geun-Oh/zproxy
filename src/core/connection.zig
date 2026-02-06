@@ -1,9 +1,11 @@
 const std = @import("std");
+const net = std.net;
 const posix = std.posix;
 
 pub const Connection = struct {
     fd: posix.fd_t,
     allocator: std.mem.Allocator,
+    address: net.Address,
 
     // Can use a fixed buffer or dynamic one.
     // For zero-copy, we might want to pass pointers, but for simple proxying,
@@ -15,10 +17,11 @@ pub const Connection = struct {
     // Actually, Session will manage the buffer to move data Client->Server.
     // Connection just wraps the FD ops.
 
-    pub fn init(fd: posix.fd_t, allocator: std.mem.Allocator) Connection {
+    pub fn init(fd: posix.fd_t, allocator: std.mem.Allocator, address: net.Address) Connection {
         return Connection{
             .fd = fd,
             .allocator = allocator,
+            .address = address,
         };
     }
 

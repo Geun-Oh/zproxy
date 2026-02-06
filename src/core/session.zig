@@ -4,6 +4,8 @@ const Connection = @import("connection.zig").Connection;
 const Poller = @import("poller.zig").Poller;
 const http1 = @import("proto/http1.zig");
 const LoadBalancer = @import("load_balancer.zig").Loadbalancer;
+const acl = @import("../acl.zig");
+const Config = @import("../config.zig");
 
 pub const Session = struct {
     const BufferSize = 16 * 1024;
@@ -18,6 +20,7 @@ pub const Session = struct {
     client: Connection,
     server: ?Connection = null,
     default_backend: []const u8 = "web_back",
+    frontend: *const Config.Frontend,
 
     // Buffer for parsing or forwarding
     buf: [BufferSize]u8 = undefined,
@@ -26,15 +29,17 @@ pub const Session = struct {
     // Initialize state
     state: State = .Init,
 
-    pub fn init(allocator: std.mem.Allocator, client_fd: posix.fd_t) !*Session {
+    pub fn init(allocator: std.mem.Allocator, client_fd: posix.fd_t, address: std.net.Address, frontend: *const Config.Frontend) !*Session {
         const self = try allocator.create(Session);
         self.* = Session{
             .allocator = allocator,
-            .client = Connection.init(client_fd, allocator),
+            .client = Connection.init(client_fd, allocator, address),
             .server = null,
             .buf_len = 0,
             // Initialize state
             .state = .Init,
+            .default_backend = frontend.backend_name,
+            .frontend = frontend,
         };
         return self;
     }
@@ -59,7 +64,8 @@ pub const Session = struct {
     /// Internal Helper: Just established TCP connection
     fn connect_backend_raw(self: *Session, poller: *Poller, host: []const u8, port: u16) !void {
         const fd = try posix.socket(posix.AF.INET, posix.SOCK.STREAM, posix.IPPROTO.TCP);
-        const svr = Connection.init(fd, self.allocator);
+        const target_addr = try std.net.Address.parseIp4(host, port);
+        const svr = Connection.init(fd, self.allocator, target_addr);
         self.server = svr;
 
         const addr = try std.net.Address.parseIp4(host, port);
@@ -104,8 +110,61 @@ pub const Session = struct {
                 };
                 defer self.allocator.free(req.headers);
 
-                // 3. Routing (Parse Host header later)
-                const backend_name: []const u8 = "web_back"; // Default fallback
+                // 3. ACL Evaluation
+                var backend_name = self.frontend.backend_name;
+
+                const HeadersWrapper = struct {
+                    headers: []http1.HttpHeader,
+
+                    pub fn get(ctx: *const anyopaque, name: []const u8) ?[]const u8 {
+                        const self_ctx: *const @This() = @ptrCast(@alignCast(ctx));
+                        for (self_ctx.headers) |h| {
+                            if (std.ascii.eqlIgnoreCase(h.name, name)) return h.value;
+                        }
+
+                        return null;
+                    }
+                };
+
+                const h_wrapper = HeadersWrapper{ .headers = req.headers };
+
+                const ctx = acl.Context{
+                    .client_ip = self.client.address,
+                    .path = req.uri,
+                    .method = req.method,
+                    .headers = .{ .ptr = &h_wrapper, .get_fn = HeadersWrapper.get },
+                };
+
+                for (self.frontend.http_request_rules) |rule| {
+                    var match = true;
+                    if (rule.condition) |cond_name| {
+                        match = false;
+
+                        for (self.frontend.acls) |*a| {
+                            if (std.mem.eql(u8, a.name, cond_name)) {
+                                if (a.match(&ctx)) {
+                                    match = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (match) {
+                            switch (rule.action.action_type) {
+                                .deny => {
+                                    _ = try self.client.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+                                    return error.ClientClosed;
+                                },
+                                .use_backend => {
+                                    if (rule.action.backend) |bk| {
+                                        backend_name = bk;
+                                    }
+                                },
+                                .allow => {},
+                            }
+                        }
+                    }
+                }
 
                 for (req.headers) |h| {
                     if (std.ascii.eqlIgnoreCase(h.name, "host")) {

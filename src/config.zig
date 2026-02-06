@@ -1,4 +1,5 @@
 const std = @import("std");
+const acl = @import("acl.zig");
 
 pub const Config = struct {
     frontends: []const Frontend,
@@ -10,6 +11,12 @@ pub const Frontend = struct {
     bind_address: []const u8 = "0.0.0.0",
     bind_port: u16,
     backend_name: []const u8,
+
+    // ACL Definitions
+    acls: []const acl.ACL = &[_]acl.ACL{},
+
+    // Request Rules (evaluated in order)
+    http_request_rules: []const acl.Rule = &[_]acl.Rule{},
 };
 
 pub const Backend = struct {

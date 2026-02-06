@@ -29,11 +29,14 @@ pub const Listener = struct {
         try poller.register(self.fd, .{ .readable = true }, self);
     }
 
-    pub fn accept(self: *Listener) !posix.fd_t {
+    pub fn accept(self: *Listener) !struct { fd: posix.fd_t, address: std.net.Address } {
         var addr: posix.sockaddr = undefined;
         var addr_len: posix.socklen_t = @sizeOf(posix.sockaddr);
         const client_fd = try posix.accept(self.fd, &addr, &addr_len, 0);
-        return client_fd;
+
+        const address = std.net.Address.initPosix(@alignCast(&addr));
+
+        return .{ .fd = client_fd, .address = address };
     }
 
     pub fn deinit(self: *Listener) void {
