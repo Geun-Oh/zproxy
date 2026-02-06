@@ -171,8 +171,6 @@ pub const Session = struct {
                         // Extract Host (remove port if exists)
                         const host_val = if (std.mem.indexOfScalar(u8, h.value, ':')) |colon| h.value[0..colon] else h.value;
 
-                        std.debug.print("[Session] Host: {s}\n", .{host_val});
-
                         if (std.mem.eql(u8, host_val, "127.0.0.1")) {}
                         break;
                     }

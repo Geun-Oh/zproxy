@@ -90,7 +90,23 @@ pub const ACL = struct {
     fn matchString(self: *const ACL, target: []const u8) bool {
         for (self.values) |pattern| {
             switch (self.match_method) {
-                .exact, .ip => if (std.mem.eql(u8, target, pattern)) return true,
+                .exact => if (std.mem.eql(u8, target, pattern)) return true,
+                .ip => {
+                    // Parse target IP to u32
+                    const target_ip = parseIpToU32(target) orelse continue;
+                    // Check if pattern is CIDR or exact IP
+                    if (std.mem.indexOfScalar(u8, pattern, '/') != null) {
+                        // CIDR matching
+                        if (Cidr.parse(pattern)) |cidr| {
+                            if (cidr.contains(target_ip)) return true;
+                        }
+                    } else {
+                        // Exact IP match
+                        if (parseIpToU32(pattern)) |pattern_ip| {
+                            if (target_ip == pattern_ip) return true;
+                        }
+                    }
+                },
                 .beg => if (std.mem.startsWith(u8, target, pattern)) return true,
                 .end => if (std.mem.endsWith(u8, target, pattern)) return true,
                 .sub => if (std.mem.indexOf(u8, target, pattern) != null) return true,
@@ -101,3 +117,51 @@ pub const ACL = struct {
         return false;
     }
 };
+
+pub const Cidr = struct {
+    addr: u32, // Network Address
+    mask: u32, // Subnet Mask
+
+    pub fn parse(s: []const u8) ?Cidr {
+        const slash_idx = std.mem.indexOfScalar(u8, s, '/') orelse return null;
+
+        const ip_str = s[0..slash_idx];
+        const prefix_str = s[slash_idx + 1 ..];
+
+        const prefix_len = std.fmt.parseInt(u5, prefix_str, 10) catch return null;
+
+        var parts: [4]u8 = undefined;
+        var iter = std.mem.splitScalar(u8, ip_str, '.');
+        var i: usize = 0;
+        while (iter.next()) |part| : (i += 1) {
+            if (i >= 4) return null;
+            parts[i] = std.fmt.parseInt(u8, part, 10) catch return null;
+        }
+
+        if (i != 4) return null;
+
+        const addr: u32 = (@as(u32, parts[0]) << 24) | (@as(u32, parts[1]) << 16) | (@as(u32, parts[2]) << 8) | @as(u32, parts[3]);
+        const mask: u32 = if (prefix_len == 0) 0 else (@as(u32, 0) >> @intCast(prefix_len));
+
+        return Cidr{ .addr = addr & mask, .mask = mask };
+    }
+
+    pub fn contains(self: Cidr, ip: u32) bool {
+        return (ip & self.mask) == self.addr;
+    }
+};
+
+fn parseIpToU32(s: []const u8) ?u32 {
+    var parts: [4]u8 = undefined;
+    var iter = std.mem.splitScalar(u8, s, '.');
+    var i: usize = 0;
+
+    while (iter.next()) |part| : (i += 1) {
+        if (i >= 4) return null;
+        parts[i] = std.fmt.parseInt(u8, part, 10) catch return null;
+    }
+
+    if (i != 4) return null;
+
+    return (@as(u32, parts[0]) << 24) | (@as(u32, parts[1]) << 16) | (@as(u32, parts[2]) << 8) | @as(u32, parts[3]);
+}
