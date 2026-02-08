@@ -165,3 +165,31 @@ fn parseIpToU32(s: []const u8) ?u32 {
 
     return (@as(u32, parts[0]) << 24) | (@as(u32, parts[1]) << 16) | (@as(u32, parts[2]) << 8) | @as(u32, parts[3]);
 }
+
+pub fn evaluateCondition(
+    condition: []const u8,
+    acls: []const ACL,
+    ctx: *const Context,
+) bool {
+    var iter = std.mem.tokenizeScalar(u8, condition, ' ');
+
+    while (iter.next()) |token| {
+        const negated = token[0] == '!';
+        const acl_name = if (negated) token[1..] else token;
+
+        // Find and eval ACL
+        var acl_matched = false;
+        for (acls) |*a| {
+            if (std.mem.eql(u8, a.name, acl_name)) {
+                acl_matched = a.match(ctx);
+                break;
+            }
+        }
+
+        if (negated) acl_matched = !acl_matched;
+
+        if (!acl_matched) return false;
+    }
+
+    return true;
+}

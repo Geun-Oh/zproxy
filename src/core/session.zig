@@ -140,14 +140,7 @@ pub const Session = struct {
                     if (rule.condition) |cond_name| {
                         match = false;
 
-                        for (self.frontend.acls) |*a| {
-                            if (std.mem.eql(u8, a.name, cond_name)) {
-                                if (a.match(&ctx)) {
-                                    match = true;
-                                    break;
-                                }
-                            }
-                        }
+                        match = acl.evaluateCondition(cond_name, self.frontend.acls, &ctx);
 
                         if (match) {
                             switch (rule.action.action_type) {
