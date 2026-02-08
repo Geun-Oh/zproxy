@@ -22,12 +22,14 @@ pub const ActionType = enum {
     allow,
     deny,
     use_backend,
+    set_path,
 };
 
 /// *.json need to parse union(enum) with special parsing format in Zig.
 pub const Action = struct {
     action_type: ActionType,
     backend: ?[]const u8 = null, // Only used when action_type == .use_backend
+    value: ?[]const u8 = null, // Used for set-path
 };
 
 pub const Rule = struct {

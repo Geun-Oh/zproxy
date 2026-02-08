@@ -153,6 +153,26 @@ pub const Session = struct {
                                         backend_name = bk;
                                     }
                                 },
+                                .set_path => {
+                                    if (rule.action.value) |new_path| {
+                                        // Calculate URL first & end position.
+                                        const uri_start = @intFromPtr(req.uri.ptr) - @intFromPtr(&self.buf);
+                                        const uri_end = uri_start + req.uri.len;
+
+                                        const prefix_len = uri_start;
+                                        const suffix = self.buf[uri_end..self.buf_len];
+
+                                        const new_len = prefix_len + new_path.len + suffix.len;
+                                        if (new_len > BufferSize) return error.HeaderTooLarge;
+
+                                        var temp_suffix: [BufferSize]u8 = undefined;
+                                        @memcpy(temp_suffix[0..suffix.len], suffix);
+                                        @memcpy(self.buf[prefix_len..][0..new_path.len], new_path);
+                                        @memcpy(self.buf[prefix_len + new_path.len ..][0..suffix.len], temp_suffix[0..suffix.len]);
+
+                                        self.buf_len = new_len;
+                                    }
+                                },
                                 .allow => {},
                             }
                         }
