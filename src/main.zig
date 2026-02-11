@@ -12,6 +12,7 @@ const Session = @import("core/session.zig").Session;
 const Config = @import("config.zig").Config;
 const Frontend = @import("config.zig").Frontend;
 const Loadbalancer = @import("core/load_balancer.zig").Loadbalancer;
+const ConnectionPool = @import("core/connection_pool.zig").ConnectionPool;
 
 const CONFIG_FILE_PATH = "zproxy.json";
 
@@ -32,6 +33,7 @@ const Engine = struct {
 
     config: std.json.Parsed(Config),
     load_balancer: Loadbalancer,
+    connection_pool: ConnectionPool,
     running: bool,
     allocator: std.mem.Allocator,
 
@@ -43,7 +45,9 @@ const Engine = struct {
         var listeners: std.ArrayList(*ListenerContext) = .{};
         var listener_map = std.AutoHashMap(?*anyopaque, *ListenerContext).init(allocator);
 
+        // errdefer 로직 수정: 이미 생성된 리스너들만 정리
         errdefer {
+            // 1. 이미 리스트에 추가된 리스너들 정리
             for (listeners.items) |ctx| {
                 ctx.listener.deinit();
                 allocator.destroy(ctx);
@@ -58,7 +62,11 @@ const Engine = struct {
         for (parsed_config.value.frontends) |fe| {
             // Alloc ctx on heap
             const ctx = try allocator.create(ListenerContext);
+            errdefer allocator.destroy(ctx); // ctx 생성 후 실패시 해제
+
             ctx.listener = try Listener.init(fe.bind_port);
+            errdefer ctx.listener.deinit(); // 리스너 init 후 실패시 해제
+
             ctx.default_backend = fe.backend_name;
             ctx.frontend_config = &fe;
 
@@ -73,6 +81,7 @@ const Engine = struct {
             .listener_map = listener_map,
             .config = parsed_config,
             .load_balancer = lb,
+            .connection_pool = ConnectionPool.init(allocator),
             .running = true,
             .allocator = allocator,
         };
@@ -89,6 +98,7 @@ const Engine = struct {
         self.listener_map.deinit();
 
         self.load_balancer.deinit();
+        self.connection_pool.deinit();
         self.config.deinit();
     }
 
@@ -107,7 +117,7 @@ const Engine = struct {
             const events = try self.poller.poll(effective_timeout);
 
             for (events) |ev| {
-                fprint("[EventLoop] Event fd={} ctx={any}\n", .{ ev.fd, ev.context });
+                // fprint("[EventLoop] Event fd={} ctx={any}\n", .{ ev.fd, ev.context });
 
                 // O(1) check if this event belongs to a Listener
                 if (self.listener_map.get(ev.context)) |listener_ctx| {
@@ -129,8 +139,9 @@ const Engine = struct {
                             listener_ctx.frontend_config,
                         );
 
-                        // Inject default backend info from the listener context
+                        // Inject default backend and connection pool
                         session.default_backend = listener_ctx.default_backend;
+                        session.pool = &self.connection_pool;
 
                         // Wait until client sends data (L7 Lazy handshake)
                         try self.poller.register(client_fd, .{ .readable = true }, session);
