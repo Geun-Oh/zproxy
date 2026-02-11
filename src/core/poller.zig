@@ -63,6 +63,19 @@ pub const Poller = struct {
         }
     }
 
+    pub fn deregister(self: *Poller, fd: posix.fd_t) !void {
+        const flags: u16 = posix.system.EV.DELETE;
+
+        try self.changes.append(self.allocator, .{
+            .ident = @intCast(fd),
+            .filter = posix.system.EVFILT.READ,
+            .flags = flags,
+            .fflags = 0,
+            .data = 0,
+            .udata = 0,
+        });
+    }
+
     pub fn poll(self: *Poller, timeout_ns: ?u64) ![]const Event {
         var ts: posix.timespec = undefined;
         var ts_ptr: ?*posix.timespec = null;
